@@ -9,7 +9,7 @@ MPU_ADDR = 0x68
 btn = Pin(4, Pin.IN, Pin.PULL_UP)
 
 # Parâmetros do Sistema
-LIMITE_TEMPO_X = 3200        # ms - tempo máximo com a porta aberta
+LIMITE_TEMPO_X = 5000        # ms - tempo máximo com a porta aberta
 LIMITE_VARIACAO_Y = 3.0      # °C - variação térmica máxima aceitável
 
 # Estado do Sistema
@@ -17,6 +17,8 @@ porta_aberta_desde = None
 alarme_porta_ativo = False
 alarme_termico_ativo = False
 temperatura_referencia = None
+normalizando_desde = None
+DEBOUNCE_NORMALIZACAO = 700   # ms - evita reação instantânea demais (flapping/corrida)
 
 
 def mpu_init():
@@ -71,10 +73,17 @@ while True:
         alarme_termico_ativo = True
         print("ALERTA: Degradacao termica detectada!")
 
-    # Normalização (as duas condições precisam estar OK ao mesmo tempo)
-    if (alarme_porta_ativo or alarme_termico_ativo) and fechada and delta_t < LIMITE_VARIACAO_Y:
-        alarme_porta_ativo = False
-        alarme_termico_ativo = False
-        print("Status: Sistema Normalizado.")
+    # Normalização (as duas condições precisam estar OK, de forma estável, ao mesmo tempo)
+    condicao_normal = fechada and delta_t < LIMITE_VARIACAO_Y
+    if (alarme_porta_ativo or alarme_termico_ativo) and condicao_normal:
+        if normalizando_desde is None:
+            normalizando_desde = agora
+        elif time.ticks_diff(agora, normalizando_desde) >= DEBOUNCE_NORMALIZACAO:
+            alarme_porta_ativo = False
+            alarme_termico_ativo = False
+            normalizando_desde = None
+            print("Status: Sistema Normalizado.")
+    else:
+        normalizando_desde = None
 
     time.sleep_ms(50)
