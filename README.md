@@ -274,71 +274,111 @@ Preencha todas as seções abaixo de forma **clara, objetiva e técnica**.
 
 ### Identificação do Candidato
 
-- **Nome completo:**
-- **GitHub:**
+- **Nome completo:** João Pedro de Oliveira Dias
+- **GitHub:** https://github.com/ojoaopedrodias
 
 ---
 
 ## Visão Geral da Solução
 
-Descreva, em poucas palavras:
+Este projeto implementa um Sistema de Monitoramento de Temperatura e Abertura de Porta, voltado para controle de qualidade e auditoria em ambientes refrigerados, estufas ou painéis elétricos.
+O sistema monitora, em paralelo e de forma não bloqueante, duas condições de risco:
 
-- Qual é o objetivo do seu projeto
-- O que o sistema embarcado simulado faz
-- Como o usuário interage com ele (se aplicável)
+**Tempo de exposição**: quanto tempo a porta/tampa permanece aberta.
+
+**Degradação térmica**: variações abruptas de temperatura em relação a uma referência estável, coletada com a porta fechada.
+
+Quando qualquer uma das duas condições ultrapassa o limite parametrizado, o sistema emite um alerta específico via Serial. O sistema só retorna ao estado normal quando ambas as condições voltam a ficar dentro do esperado, de forma estável, ao mesmo tempo.
+A interação do usuário (ou do simulador, no caso dos testes automatizados) acontece por meio de dois componentes: um botão que simula o estado da porta e um sensor de temperatura (MPU6050), ambos lidos continuamente pelo firmware.
 
 ---
 
 ## Arquitetura do Sistema Embarcado
 
-Explique a arquitetura lógica do seu projeto, abordando:
+O firmware (src/main.py) roda em MicroPython sobre um ESP32, seguindo uma arquitetura de loop principal único, não bloqueante, sem uso de sleep() prolongado nem funções bloqueantes que pudessem quebrar a sincronia com o simulador.
 
-- Fluxo principal do programa (`main.py`)
-- Estrutura de estados, loops ou temporizações
-- Como os componentes interagem entre si
+**Fluxo principal**
 
-Se desejar, utilize tópicos ou um pequeno diagrama em texto.
+Inicialização
+
+  └─ Configura I2C e tira o MPU6050 do modo sleep
+  
+  └─ Imprime "Sistema de Monitoramento Inicializado"
+  
+Loop principal (a cada ~50ms):
+
+  ├─ Lê o estado do botão (porta aberta/fechada)
+
+  ├─ Lê a temperatura atual via I2C
+  
+  ├─ Captura a temperatura de referência na primeira vez que a porta
+  
+  │   estiver fechada (sem bloquear o loop, mesmo que a porta comece aberta)
+  
+  ├─ Calcula o delta de temperatura (atual - referência)
+  
+  ├─ Verifica tempo de porta aberta → dispara alerta se ultrapassar o limite X
+  
+  ├─ Verifica variação térmica → dispara alerta se ultrapassar o limite Y
+  
+  └─ Verifica normalização → exige que ambas as condições estejam OK de
+      forma ESTÁVEL por um pequeno intervalo (debounce) antes de declarar
+      o sistema normalizado
+
+**Estados e variáveis de controle**
+
+**porta_aberta_desde**: marca temporal de quando a porta começou a ficar aberta (usada para o timeout).
+
+**alarme_porta_ativo / alarme_termico_ativo**: flags que indicam se cada tipo de alarme está ativo.
+
+**temperatura_referencia**: capturada dinamicamente na primeira vez que a porta fecha — não é fixa em tempo de compilação, o que permite que o sistema funcione mesmo que a porta comece aberta.
+
+**normalizando_desde**: marca temporal usada no debounce da normalização (ver "Decisões Técnicas Relevantes").
 
 ---
 
 ## Componentes Utilizados na Simulação
 
-Liste os principais componentes definidos no `diagram.json`, por exemplo:
+Definidos no diagram.json:
 
-- Tipo de placa utilizada
-- LEDs, botões, sensores, atuadores, etc.
-- Função de cada componente no sistema
+| Componente |	ID |	Função |
+|:---------- |:--:| ------:|
+| ESP32 DevKit C v4 |	esp |	Microcontrolador principal |
+| MPU6050 (IMU) |	imu1 |	Sensor de temperatura, lido via I2C (registrador de temperatura do chip) |
+| Botão (fim de curso) |	btn1 |	Simula o estado da porta — pressionado = fechada, solto = aberta |
+| Serial Monitor |	— |	Saída de logs, alertas e telemetria |
+
+Fiação: MPU6050 conectado via I2C (SCL→GPIO22, SDA→GPIO21, VCC→3V3, GND→GND); botão conectado a GPIO4 com pull-up interno, outra perna ao GND.
 
 ---
 
 ## Decisões Técnicas Relevantes
 
-Explique brevemente decisões importantes tomadas durante o desenvolvimento, como:
-
-- Organização do código
-- Uso de funções, estados ou constantes
-- Estratégias para temporização ou controle lógico
+Foram realizadas melhorias no sistema para corrigir falhas de funcionamento e aumentar sua confiabilidade. A captura da temperatura de referência passou a ocorrer de forma não bloqueante dentro do loop principal, evitando deadlocks quando a porta inicia aberta. A lógica de detecção da porta foi ajustada para a polaridade correta do botão configurado com PULL_UP. Também foi implementado um mecanismo de debounce na normalização, exigindo que as condições seguras permaneçam estáveis por um curto período antes de confirmar o estado, prevenindo oscilações e condições de corrida nos testes. Por fim, a leitura da temperatura do MPU6050 passou a ser feita diretamente pelo registrador TEMP_OUT (0x41) via I2C, eliminando a dependência de bibliotecas externas no MicroPython.
 
 ---
 
 ## Resultados Obtidos
 
-Descreva o comportamento final do sistema:
+Os três cenários de teste automatizados (Wokwi CI) executam com sucesso:
 
-- O que funciona corretamente
-- Quais requisitos foram atendidos
-- Resultado observado na simulação do Wokwi
+**Alarme por Porta Aberta**: o sistema inicializa corretamente e emite o alerta de porta aberta após o tempo limite configurado.
+
+**Alarme por Elevação Térmica**: o sistema detecta corretamente o gradiente de temperatura acima do limite de tolerância e emite o alerta térmico.
+
+**Retorno ao Estado Normal**: após os alarmes serem disparados, o sistema reconhece corretamente quando ambas as condições voltam ao normal e emite a mensagem de normalização.
+
+Todas as mensagens Seriais batem exatamente com o especificado, e o firmware não utiliza nenhuma função bloqueante no loop principal.
 
 ---
 
 ## Comentários Adicionais (Opcional)
 
-Utilize este espaço para comentar, se desejar:
-
-- Dificuldades encontradas
-- Limitações da solução
-- Melhorias que você faria com mais tempo
-- Principais aprendizados durante o desafio
+Durante o desenvolvimento, o maior desafio não foi a lógica em si, mas sim o processo de debugging de infraestrutura.
+Identificar por que o firmware não inicializava corretamente.
+Corrigir a fiação incorreta no diagram.json (nomes de pino), corrigir a polaridade do botão, e por fim identificar uma condição de corrida sutil entre o firmware e o harness de testes automatizados do Wokwi CI, que exigiu a introdução de um debounce na lógica de normalização.
+Com mais tempo, uma melhoria possível seria expor os parâmetros LIMITE_TEMPO_X e LIMITE_VARIACAO_Y como valores configuráveis externamente.
+Principal aprendizado: em sistemas embarcados simulados com testes automatizados, nem toda falha é um bug de lógica, parte considerável do trabalho foi entender o comportamento real da ferramenta de simulação e teste (Wokwi CI) para alinhar o timing do firmware com as expectativas do harness de validação.
 
 ---
 
