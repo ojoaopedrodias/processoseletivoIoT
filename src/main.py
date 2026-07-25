@@ -9,7 +9,7 @@ MPU_ADDR = 0x68
 btn = Pin(4, Pin.IN, Pin.PULL_UP)
 
 # Parâmetros do Sistema
-LIMITE_TEMPO_X = 4000        # ms - tempo máximo com a porta aberta
+LIMITE_TEMPO_X = 3500        # ms - tempo máximo com a porta aberta
 LIMITE_VARIACAO_Y = 3.0      # °C - variação térmica máxima aceitável
 
 # Estado do Sistema
