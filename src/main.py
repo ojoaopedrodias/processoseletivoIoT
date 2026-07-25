@@ -42,18 +42,18 @@ def porta_fechada():
 mpu_init()
 print("Sistema de Monitoramento Inicializado")
 
-# Captura a temperatura de referência assim que a porta estiver fechada
-while temperatura_referencia is None:
-    if porta_fechada():
-        temperatura_referencia = ler_temperatura()
-    time.sleep_ms(50)
-
 # Loop Principal (não bloqueante)
 while True:
     agora = time.ticks_ms()
     fechada = porta_fechada()
     temp_atual = ler_temperatura()
-    delta_t = temp_atual - temperatura_referencia
+
+    # Captura a referência na primeira vez que a porta estiver fechada, sem bloquear o loop
+    if fechada and temperatura_referencia is None:
+        temperatura_referencia = temp_atual
+
+    # Enquanto não há referência ainda, considera delta seguro (sem alarme térmico)
+    delta_t = (temp_atual - temperatura_referencia) if temperatura_referencia is not None else 0.0
 
     # Tempo de porta aberta
     if not fechada:
@@ -67,7 +67,7 @@ while True:
         porta_aberta_desde = None
 
     # Variação térmica
-    if delta_t >= LIMITE_VARIACAO_Y and not alarme_termico_ativo:
+    if temperatura_referencia is not None and delta_t >= LIMITE_VARIACAO_Y and not alarme_termico_ativo:
         alarme_termico_ativo = True
         print("ALERTA: Degradacao termica detectada!")
 
